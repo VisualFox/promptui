@@ -21,6 +21,8 @@ const SelectedAdd = -1
 // Select represents a list of items used to enable selections, they can be used as search engines, menus
 // or as a list of items in a cli based prompt.
 type Select struct {
+	Header interface{}
+
 	// Label is the text displayed on top of the list to direct input. The IconInitial value "?" will be
 	// appended automatically to the label so it does not need to be added.
 	//
@@ -134,6 +136,8 @@ type Key struct {
 // Setting any of these templates will remove the icons from the default templates. They must
 // be added back in each of their specific templates. The styles.go constants contains the default icons.
 type SelectTemplates struct {
+	Header string
+
 	// Label is a text/template for the main command line label. Defaults to printing the label as it with
 	// the IconInitial.
 	Label string
@@ -168,6 +172,7 @@ type SelectTemplates struct {
 	// is overridden, the colors functions must be added in the override from promptui.FuncMap to work.
 	FuncMap template.FuncMap
 
+	header    *template.Template
 	label    *template.Template
 	active   *template.Template
 	inactive *template.Template
@@ -286,6 +291,13 @@ func (s *Select) innerRun(cursorPos, scroll int, top rune) (int, string, error) 
 			if canSearch && searchMode {
 				cur.Update(string(line))
 				s.list.Search(string(cur.Get()))
+			}
+		}
+
+		if s.Header != nil {
+			headers := s.renderHeader(s.Header)
+			for _, d := range headers {
+				sb.Write(d)
 			}
 		}
 
@@ -463,6 +475,15 @@ func (s *Select) prepareTemplates() error {
 		tpls.details = tpl
 	}
 
+	if tpls.Header != "" {
+		tpl, err = template.New("").Funcs(tpls.FuncMap).Parse(tpls.Header)
+		if err != nil {
+			return err
+		}
+
+		tpls.header = tpl
+	}
+
 	if tpls.Help == "" {
 		tpls.Help = fmt.Sprintf(`{{ "Use the arrow keys to navigate:" | faint }} {{ .NextKey | faint }} ` +
 			`{{ .PrevKey | faint }} {{ .PageDownKey | faint }} {{ .PageUpKey | faint }} ` +
@@ -573,6 +594,26 @@ func (s *Select) setKeys() {
 		PageDown: Key{Code: KeyForward, Display: KeyForwardDisplay},
 		Search:   Key{Code: '/', Display: "/"},
 	}
+}
+
+func (s *Select) renderHeader(header interface{}) [][]byte {
+	if s.Templates.header == nil {
+		return nil
+	}
+
+	var buf bytes.Buffer
+	w := ansiterm.NewTabWriter(&buf, 0, 0, 8, ' ', 0)
+
+	err := s.Templates.header.Execute(w, header)
+	if err != nil {
+		fmt.Fprintf(w, "%v", header)
+	}
+
+	w.Flush()
+
+	output := buf.Bytes()
+
+	return bytes.Split(output, []byte("\n"))
 }
 
 func (s *Select) renderDetails(item interface{}) [][]byte {
